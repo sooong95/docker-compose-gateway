@@ -1,0 +1,88 @@
+version: '3'
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+
+  rabbitmq:
+    image: rabbitmq:3-management   # 관리 UI 포함된 이미지
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"   # AMQP 프로토콜 (Spring, Node, Python 등에서 연결할 때 사용)
+      - "15672:15672" # Management UI (http://localhost:15672)
+    environment:
+      RABBITMQ_DEFAULT_USER: guest   # 기본 사용자명
+      RABBITMQ_DEFAULT_PASS: guest   # 기본 비밀번호
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq  # 데이터 영구 저장
+
+  zipkin:
+    image: openzipkin/zipkin
+    container_name: zipkin
+    ports:
+      - "9411:9411"
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  sj-config-server:
+    image: sooong137/sj-config-server:1.0
+    container_name: sj-config-server
+    ports:
+      - "8888:8888"
+    depends_on:
+      - rabbitmq
+    environment:
+      - SPRING_PROFILES_ACTIVE=default
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8888/actuator/health" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  sj-eureka-server:
+    image: sooong137/sj-eureka-server:1.0
+    container_name: sj-eureka-server
+    ports:
+      - "8761:8761"
+    depends_on:
+      - sj-config-server
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8761/actuator/health" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  sj-gateway:
+    image: sooong137/sj-gateway:1.0
+    container_name: sj-gateway
+    ports:
+      - "8080:8080"
+    depends_on:
+      - sj-eureka-server
+
+volumes:
+  rabbitmq_data:
